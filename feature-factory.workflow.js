@@ -36,7 +36,9 @@ export const meta = {
 //     ]
 //   }
 // ─────────────────────────────────────────────────────────────────────────────
-const cfg = args || {}
+// args may arrive as a JSON string (some harness paths stringify it)
+// or as a parsed object — accept either.
+const cfg = (typeof args === 'string' ? JSON.parse(args) : args) || {}
 const TASKS = cfg.tasks || []
 const MAX_ROUNDS = cfg.maxRounds || 3
 const G_TEST = cfg.testCmd || 'echo "no testCmd set"'
