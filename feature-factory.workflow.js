@@ -46,6 +46,16 @@ const G_LINT = cfg.lintCmd || 'echo "no lintCmd set"'
 const ROOT = cfg.repoRoot || '.'
 const TRUNK = cfg.trunk || 'main'
 const WT_BASE = cfg.worktreeBase || '/tmp/ff-wt'
+// ROOT-CAUSE fix for worktree env: a fresh worktree is a bare git checkout that
+// LACKS non-git-tracked environment — Python editable-install .pth points at the
+// MAIN repo (so `import thepaper_backend` loads stale code → ImportError), and
+// Node has NO node_modules (so `vitest`/`eslint` → command not found). Any test
+// run inside a worktree must first restore that environment. This string is
+// injected into BOTH the Dev and Tester prompts so neither tests stale/missing env.
+const SETUP = cfg.setupNote || `ENVIRONMENT SETUP — MANDATORY before running ANY test/lint/build inside a worktree (a worktree is a bare checkout missing non-git env):
+  1. Python: this repo uses an editable install whose .pth is pinned to the MAIN repo. To test the WORKTREE's code, run pytest from the package dir with PYTHONPATH set to the worktree src, e.g. \`cd backend && PYTHONPATH="$(pwd)/src" python3 -m pytest ...\` (same for \`tools\`). Without this you load the main repo's stale code → ImportError.
+  2. Node/UI: the worktree has NO node_modules. Before any \`npm run test:run|lint|build\`, first \`cd ui && npm ci\` (lockfile present). Without this → \`vitest: command not found\`.
+Do these in the worktree FIRST, then run the gate. Report actual env-setup + gate output.`
 
 if (!TASKS.length) {
   log('No tasks supplied in args.tasks — nothing to build. Pass the DAG from DESIGN.md.')
@@ -196,6 +206,7 @@ async function runNode(t) {
       const dev = await agent(
         `You are the Dev agent. Work ONLY inside the worktree cwd=${cwd} on branch ${branch}. Do NOT touch ${ROOT} or other worktrees.
 Implement task ${t.id}: ${t.title}.
+${SETUP}
 Spec: ${t.spec}
 Cite & follow these ADRs: ${(t.adr || []).join(', ') || '(none)'}.
 Rules: additive / backward-compatible; feature-flag risky paths; commit your work; push branch ${branch}; open (or update) a PR targeting ${TRUNK}, rebased on the latest trunk. Report the PR head commit + PR url.
@@ -217,7 +228,9 @@ ${round > 1
       testWorktrees.push(testWt)
       const test = await agent(
         `You are the Tester agent — INDEPENDENT of the Dev. Do NOT trust any self-report.
-Verify task ${t.id} against the PR HEAD ${dev.commit} on branch ${branch}. Create a throwaway worktree at EXACTLY this path: \`git -C ${ROOT} worktree add --detach ${testWt} ${dev.commit}\`, then RUN the gate inside ${testWt}:
+Verify task ${t.id} against the PR HEAD ${dev.commit} on branch ${branch}. Create a throwaway worktree at EXACTLY this path: \`git -C ${ROOT} worktree add --detach ${testWt} ${dev.commit}\`.
+${SETUP}
+Then RUN the gate inside ${testWt}:
   - run: ${testCmd}
   - run: ${lintCmd}
   - behavioral gate: ${t.gate}
